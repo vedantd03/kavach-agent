@@ -152,8 +152,45 @@ run it, and the first launch is slower while Defender scans it.
 ## Tests
 
 ```bash
-pytest -q          # 88 passing, 1 skipped (symlink test needs privileges on Windows)
+pytest -q                 # 88 passing, 1 skipped (symlink test needs privileges on Windows)
+pytest -m benchmark -s    # resource benchmarks, excluded from the default run
 ```
+
+Install the extra tooling with `pip install -r requirements-dev.txt` (psutil for
+the benchmarks, pyinstaller for the binary). Neither ships in the agent.
+
+### Benchmarks
+
+`tests/test_benchmark.py` measures what the agent costs on someone's laptop and
+asserts a ceiling on each number, so a regression fails the run instead of being
+discovered in production. Measured on a Windows 11 laptop, 8 logical cores:
+
+| | wall | CPU | peak memory |
+|---|---|---|---|
+| parse 32 MB txt | 0.34 s (93 MB/s) | 0.08 s | +37 MB |
+| parse 20k-row csv (5k cap) | 0.05 s | 0.03 s | +0.9 MB |
+| crawl 300 small files | 1-4 s (75-300 files/s) | 0.47 s | +1 MB |
+| end-to-end scan, 40 files | 0.23 s (5 ms CPU/file) | 0.22 s | +35 MB |
+| idle processor | - | ~0 s | 0 MB |
+
+The live daemon, measured separately against the deployed server: **0.01% CPU
+idle**, 85 MB resident, and 0.38 CPU-seconds for a full 8-file scan - the wall
+time is almost entirely waiting on the server.
+
+Two ceilings worth knowing about:
+
+- **One large file spikes about 2x its size**, because `_read_text` reads it
+  whole before chunking. `max_file_mb` (default 50) is what caps this; drop it
+  in `.env` for a tighter ceiling.
+- **A full 20-file batch holds every chunk at once** (+104 MB for 20x4 MB files,
+  80 M characters). `Processor.process_once` extracts all claimed files before
+  sending any, so the 8 MB request cap limits the wire, not memory. With two
+  processor threads the worst case is roughly 300 MB. Extracting lazily and
+  flushing each batch at the limit would cap it at ~8 MB per thread;
+  `test_full_batch_extraction_memory` is the test that would confirm the win.
+
+Crawl throughput is bound by file opens (antivirus scanning each read), not by
+agent code - see that test's docstring.
 
 ## Status
 

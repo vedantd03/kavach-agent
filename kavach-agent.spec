@@ -41,7 +41,7 @@ datas += collect_data_files("pdfminer")
 EXCLUDES = [
     "streamlit", "pandas", "numpy", "matplotlib", "fastapi", "uvicorn", "starlette",
     "pytest", "reportlab", "IPython", "tkinter", "PySide6", "PyQt5", "notebook",
-    "google", "google_genai", "torch", "transformers", "pytesseract",
+    "google", "google_genai", "torch", "transformers", "pytesseract", "psutil",
 ]
 
 analysis = Analysis(

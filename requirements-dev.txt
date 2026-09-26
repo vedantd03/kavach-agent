@@ -1,0 +1,6 @@
+# Development and CI only - never bundled into the agent binary.
+-r requirements.txt
+
+psutil>=5.9        # resource benchmarks (tests/test_benchmark.py)
+pyinstaller>=6.0   # standalone executable (kavach-agent.spec)
+pyflakes>=3.0
