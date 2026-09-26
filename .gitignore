@@ -13,3 +13,4 @@ venv/
 build/
 dist/
 dist-onedir/
+demo_folder/
