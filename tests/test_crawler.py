@@ -149,3 +149,33 @@ def test_max_file_mb_zero_disables_the_size_limit(store: Store, tmp_path: Path):
     store.create_scan(payload, None)
     crawl_scan(store, payload)
     assert files_in(store)["big.log"][0] == "discovered"
+
+
+def test_crawl_recurses_to_any_depth(store: Store, tmp_path: Path):
+    """Subfolders are walked all the way down, and exclusions apply at every level."""
+    root = tmp_path / "deep"
+    wanted = [
+        "top.txt", "a/one.txt", "a/b/two.txt", "a/b/c/three.txt",
+        "a/b/c/d/four.txt", "a/b/c/d/e/five.txt", "a/b/c/d/e/f/six.txt",
+    ]
+    unwanted = [
+        "a/b/node_modules/skip.txt",        # excluded dir, 3 levels down
+        "a/b/c/.git/config.txt",            # excluded dir, 4 levels down
+        "a/b/c/notes.bin",                  # extension not in include_types
+    ]
+    for rel in wanted + unwanted:
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"contents of {rel}\n", encoding="utf-8")
+
+    payload = payload_for(root)
+    store.create_scan(payload, None)
+    stats = crawl_scan(store, payload)
+
+    found = {
+        Path(row["file_path"]).relative_to(root).as_posix()
+        for row in store.conn.execute("SELECT file_path FROM files")
+    }
+    assert found == set(wanted)
+    assert stats.discovered == len(wanted)
+    assert max(rel.count("/") for rel in found) == 6      # deepest level reached
