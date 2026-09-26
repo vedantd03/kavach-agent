@@ -101,10 +101,58 @@ to `/detect` as a `FileMeta` with no chunks, so the server records that it exist
   the corpus values in every spacing variant. Point it at a real corpus with
   `CORPUS_LABELS=/path/to/labels.jsonl`.
 
+## Building a standalone executable
+
+The agent normally ships as a Python install (above).  For a laptop without
+Python, `kavach-agent.spec` builds a self-contained executable:
+
+```bash
+pip install pyinstaller
+pyinstaller kavach-agent.spec --noconfirm                 # one file  -> dist/kavach-agent.exe
+KAVACH_ONEDIR=1 pyinstaller kavach-agent.spec --noconfirm # one folder -> dist/kavach-agent/
+```
+
+| | size | cold start | `scan` of the 8-file demo folder |
+|---|---|---|---|
+| one-file | 45 MB | ~5 s | ~6 s |
+| one-folder | 83 MB | ~2.7 s | ~2.2 s |
+
+A one-file exe unpacks itself to a temp directory on every launch, which is
+where the extra seconds go.  **Prefer one-folder for the demo.**
+
+Ship the executable (or the folder) with a `.env` beside it:
+
+```
+kavach-agent.exe
+.env                 SERVER_URL=http://<server-ip>:8000, DEVICE_ID=LAPTOP-01
+agent.db             created on first run, next to the executable
+```
+
+`agent/config.py::_base_dir()` anchors `.env` and a relative `AGENT_DB` to the
+folder holding the executable when frozen, and to the repo root otherwise. Without
+that, a one-file build would read a `.env` that never exists and write its database
+into the temp directory, losing unchanged-skip and crash recovery on every launch.
+
+Three things the spec has to handle, all verified by building and running it:
+
+- `agent/schema.sql` is a data file (`--add-data`), not a module.
+- pdfplumber needs the `pypdfium2` native renderer and pdfminer's cmap tables;
+  the spec collects both. Without them, PDF pages fail at runtime, not at build.
+- **detect-core is installed editable, so PyInstaller cannot see it.** The spec
+  puts `../kavach-server/detect_core` on `pathex` and names `detect_core` as a
+  hidden import. Override the location with `DETECT_CORE_SRC=/path/to/detect_core`.
+
+Streamlit, pandas, FastAPI and the test tooling are excluded on purpose: the 1A
+agent does not import them, and they roughly triple the size. Rule 0 still holds -
+no OCR or ML libraries are bundled.
+
+The executable is unsigned, so SmartScreen will warn on a machine that has never
+run it, and the first launch is slower while Defender scans it.
+
 ## Tests
 
 ```bash
-pytest -q          # 79 passing, 1 skipped (symlink test needs privileges on Windows)
+pytest -q          # 88 passing, 1 skipped (symlink test needs privileges on Windows)
 ```
 
 ## Status

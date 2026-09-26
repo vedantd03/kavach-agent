@@ -1,13 +1,14 @@
 """Agent configuration.  Env vars only (rule 8) - never hardcode secrets or paths.
 
-A ``.env`` file next to the repo root is loaded on import if present, so the demo
-works without exporting variables by hand.  Real values always come from the
+A ``.env`` file next to the base directory is loaded on import if present, so the
+demo works without exporting variables by hand.  Real values always come from the
 process environment; ``.env`` only fills gaps.
 """
 
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -17,7 +18,22 @@ from detect_core.contracts import (
     DEFAULT_MAX_FILE_MB,
 )
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+
+def _base_dir() -> Path:
+    """Where ``.env`` is read from and a relative ``AGENT_DB`` is written.
+
+    From source that is the repo root.  In a PyInstaller build it must be the
+    folder holding the executable: a one-file build unpacks itself into a fresh
+    temp directory on every launch, so anchoring to ``__file__`` there would read
+    a ``.env`` that never exists and write the database somewhere that is deleted
+    on exit - losing unchanged-skip, command dedupe and crash recovery.
+    """
+    if getattr(sys, "frozen", False):                      # PyInstaller sets this
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent.parent
+
+
+REPO_ROOT = _base_dir()
 
 
 def _load_dotenv(path: Path) -> None:
