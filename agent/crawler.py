@@ -1,9 +1,11 @@
 """Walk the scan roots and record every candidate file (api.md 8).
 
 The crawler does no parsing: it decides *what* to look at, hashes the bytes, and
-writes one ``files`` row per candidate.  Oversize and unreadable files are
-recorded as ``unscannable`` here so the server still hears about them; unchanged
-files (same path + hash already completed) are ``skipped`` unless ``force``.
+writes one ``files`` row per candidate.  Oversize and unreadable files keep their
+reason and stay ``discovered``, so the Processor still sends them to ``/detect``
+as a ``FileMeta`` with no chunks (api.md 6) before marking them unscannable;
+unchanged files (same path + hash already completed) are ``skipped`` unless
+``force``.
 """
 
 from __future__ import annotations
@@ -15,12 +17,7 @@ from typing import Iterator, Optional
 
 from detect_core.contracts import ScanPayload, classify_folder, file_type_for
 
-from agent.store import (
-    FILE_STATUS_DISCOVERED,
-    FILE_STATUS_SKIPPED,
-    FILE_STATUS_UNSCANNABLE,
-    Store,
-)
+from agent.store import FILE_STATUS_DISCOVERED, FILE_STATUS_SKIPPED, Store
 from agent.util import get_logger, iso_from_mtime, iso_now, safe_error, sha256_file
 
 log = get_logger("crawler")
@@ -69,7 +66,7 @@ def crawl_scan(
         store.add_files(pending)
 
     log.info(
-        "crawl %s: %d discovered, %d skipped, %d unscannable, %d ignored",
+        "crawl %s: %d discovered, %d skipped, %d unreadable, %d ignored",
         payload.scan_id, stats.discovered, stats.skipped, stats.unscannable, stats.ignored,
     )
     return stats
@@ -94,17 +91,17 @@ def _row_for(
 
     if max_bytes and candidate.size_bytes > max_bytes:
         stats.unscannable += 1
-        return {**base, "status": FILE_STATUS_UNSCANNABLE, "status_reason": "oversize"}
+        return {**base, "status": FILE_STATUS_DISCOVERED, "status_reason": "oversize"}
 
     try:
         file_hash = sha256_file(candidate.file_path)
     except PermissionError:
         stats.unscannable += 1
-        return {**base, "status": FILE_STATUS_UNSCANNABLE, "status_reason": "permission_denied"}
+        return {**base, "status": FILE_STATUS_DISCOVERED, "status_reason": "permission_denied"}
     except OSError as exc:
         log.info("hash failed: %s", safe_error(exc))
         stats.unscannable += 1
-        return {**base, "status": FILE_STATUS_UNSCANNABLE, "status_reason": "corrupt"}
+        return {**base, "status": FILE_STATUS_DISCOVERED, "status_reason": "corrupt"}
 
     base["file_hash"] = file_hash
 

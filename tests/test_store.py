@@ -182,3 +182,15 @@ def test_command_ack_is_stored_verbatim_for_redelivery(store: Store):
     store.record_command("cmd_1", "SCAN", {"scan_id": "scan_1"}, "accepted", None)  # no overwrite
     row = store.get_command("cmd_1")
     assert (row["ack_status"], row["ack_reason"]) == ("rejected", "PATH_NOT_FOUND")
+
+
+def test_interrupted_crawl_is_requeued_on_startup(store: Store):
+    store.create_scan(make_payload("scan_crashed"), "cmd_1")
+    store.start_scan("scan_crashed")                    # crashed before crawl_complete
+    store.create_scan(make_payload("scan_finished_crawl"), "cmd_2")
+    store.start_scan("scan_finished_crawl")
+    store.set_crawl_complete("scan_finished_crawl")
+
+    assert store.resume_interrupted_scans() == 1
+    assert store.get_scan("scan_crashed")["status"] == "queued"
+    assert store.get_scan("scan_finished_crawl")["status"] == "running"

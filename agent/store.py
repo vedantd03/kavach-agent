@@ -384,6 +384,22 @@ class Store:
             ).rowcount or 0
         return (requeued, failed)
 
+    def resume_interrupted_scans(self) -> int:
+        """Startup recovery: a scan whose crawl never finished goes back to the queue.
+
+        ``add_files`` ignores duplicates, so re-crawling is safe: files that were
+        already done stay done and only the unvisited remainder is added.
+        """
+        with self._tx() as conn:
+            cursor = conn.execute(
+                "UPDATE scans SET status = ? WHERE status = ? AND crawl_complete = 0",
+                (SCAN_STATUS_QUEUED, SCAN_STATUS_RUNNING),
+            )
+        count = cursor.rowcount or 0
+        if count:
+            log.info("requeued %d scan(s) whose crawl was interrupted", count)
+        return count
+
     def recover_processing(self) -> int:
         """Startup recovery: a crash leaves ``processing`` rows behind (api.md 8)."""
         with self._tx() as conn:

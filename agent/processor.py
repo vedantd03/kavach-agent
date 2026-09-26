@@ -39,6 +39,10 @@ log = get_logger("processor")
 #: Rough per-chunk JSON overhead (ids, paths, nulls) when sizing a request.
 _CHUNK_OVERHEAD_BYTES = 400
 
+#: Reasons the crawler can set without opening the file.  Such a file is sent to
+#: /detect as metadata with no chunks, so the server records that it exists.
+_CRAWL_UNSCANNABLE = frozenset({"oversize", "permission_denied", "corrupt"})
+
 
 @dataclass
 class ProcessStats:
@@ -140,7 +144,7 @@ class Processor:
 
         # A file the crawler already judged unreadable goes to /detect as
         # metadata with no chunks, so the server records it too.
-        if row["status_reason"] in {"oversize", "permission_denied"} and not facts.file_hash:
+        if row["status_reason"] in _CRAWL_UNSCANNABLE and not facts.file_hash:
             meta.status = "unscannable"
             meta.status_reason = row["status_reason"]
             return _Prepared(int(row["id"]), meta)

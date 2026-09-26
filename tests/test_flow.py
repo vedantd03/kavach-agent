@@ -243,3 +243,34 @@ def test_heartbeat_reports_the_lifetime_file_count(store: Store, client: ServerC
     device = next(d for d in devices if d["device_id"] == config.device_id)
     assert device["files_scanned"] >= 3
     assert device["agent_version"] == config.agent_version
+
+
+def test_oversize_file_is_reported_to_the_server(store: Store, client: ServerClient, config: Config, tmp_path: Path):
+    """api.md 6: an unscannable file still goes to /detect with no chunks."""
+    from detect_core.contracts import ScanPayload
+
+    root = tmp_path / "big"
+    root.mkdir()
+    (root / "huge.log").write_text("x" * (2 * 1024 * 1024), encoding="utf-8")
+
+    payload = ScanPayload(scan_id="local-big", roots=[str(root)], force=False, max_file_mb=1)
+    store.create_scan(payload, None)
+    run_crawl(store, "local-big")
+
+    sent: list[dict] = []
+    original = client.detect
+
+    def spy(request):
+        sent.append(request.model_dump(mode="json"))
+        return original(request)
+
+    client.detect = spy                                  # type: ignore[method-assign]
+    stats = Processor(store, client, config.device_id).run_until_idle("local-big")
+
+    assert stats.files_unscannable == 1
+    assert len(sent) == 1
+    assert sent[0]["files"][0]["status"] == "unscannable"
+    assert sent[0]["files"][0]["status_reason"] == "oversize"
+    assert sent[0]["chunks"] == []
+    row = store.conn.execute("SELECT * FROM files").fetchone()
+    assert (row["status"], row["status_reason"]) == ("unscannable", "oversize")

@@ -29,11 +29,7 @@ from agent.client import NotFound, ScanClosed, ServerClient, ServerError
 from agent.config import Config, load_config
 from agent.crawler import existing_roots, run_crawl
 from agent.processor import Processor, ProcessStats
-from agent.store import (
-    SCAN_STATUS_COMPLETED,
-    SCAN_STATUS_FAILED,
-    Store,
-)
+from agent.store import SCAN_STATUS_COMPLETED, Store
 from agent.util import get_logger, is_local_scan, local_scan_id, safe_error, setup_logging
 
 log = get_logger("main")
@@ -244,6 +240,7 @@ def _duration_ms(started_at: Optional[str]) -> Optional[int]:
 def cmd_run(config: Config) -> int:
     store = Store(config.db_file)
     store.recover_processing()
+    store.resume_interrupted_scans()
     stop = threading.Event()
 
     with ServerClient(config) as client:

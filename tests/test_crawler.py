@@ -63,7 +63,8 @@ def test_oversize_file_is_unscannable_without_being_read(store: Store, tmp_path:
     payload = payload_for(tmp_path, max_file_mb=1)
     store.create_scan(payload, None)
     crawl_scan(store, payload)
-    assert files_in(store)["big.log"] == ("unscannable", "oversize")
+    # it stays queued so the Processor can tell the server the file exists
+    assert files_in(store)["big.log"] == ("discovered", "oversize")
     row = store.conn.execute("SELECT file_hash FROM files").fetchone()
     assert row["file_hash"] == ""                       # not hashed, not opened
 
