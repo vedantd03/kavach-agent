@@ -21,6 +21,7 @@ import signal
 import sys
 import threading
 import time
+from pathlib import Path
 from typing import Optional
 
 from detect_core.contracts import ScanComplete, ScanPayload, ScanProgress
@@ -341,7 +342,7 @@ def _print_scan_summary(store: Store, scan_id: str, crawl, stats: ProcessStats, 
     print(f"  failed           : {counts['files_failed']}")
     print(f"  chunks sent      : {stats.chunks_sent} in {stats.batches} request(s)")
     if stats.ocr_pages:
-        print(f"  ocr pages        : {stats.ocr_pages}")
+        print(f"  ocr pages sent   : {stats.ocr_pages}")
     print(f"  findings         : {counts['findings']}")
     for tier in ("restricted", "confidential", "internal", "public"):
         if tiers.get(tier):
@@ -369,6 +370,34 @@ def cmd_status(config: Config) -> int:
     return 0
 
 
+def cmd_findings(config: Config, limit: int, scan_id: Optional[str]) -> int:
+    """Print what the local store holds.  By construction that is masked only."""
+    store = Store(config.db_file)
+    where, args = ("WHERE scan_id = ?", [scan_id]) if scan_id else ("", [])
+    rows = store.conn.execute(
+        f"SELECT * FROM findings {where} ORDER BY risk_score DESC, finding_id LIMIT ?",
+        [*args, limit],
+    ).fetchall()
+    if not rows:
+        print("no findings stored yet")
+        store.close()
+        return 0
+
+    print(f"{'type':<16} {'masked value':<16} {'tier':<13} {'risk':>5}  {'by':<7} file")
+    print("-" * 100)
+    for row in rows:
+        name = Path(row["file_path"]).name
+        print(f"{str(row['pii_type'] or row['doc_type'] or '-'):<16} "
+              f"{str(row['masked_value'] or '-'):<16} {row['sensitivity_tier']:<13} "
+              f"{row['risk_score']:>5.0f}  {row['decided_by']:<7} {name}")
+    total = store.findings_count(scan_id)
+    print()
+    print(f"showing {len(rows)} of {total}. Stored per finding: masked value + HMAC hash only -")
+    print("no raw identifier and no file text is ever written to the agent database.")
+    store.close()
+    return 0
+
+
 def cmd_health(config: Config) -> int:
     with ServerClient(config) as client:
         try:
@@ -392,6 +421,10 @@ def build_parser() -> argparse.ArgumentParser:
     scan.add_argument("--force", action="store_true", help="re-scan unchanged files")
 
     sub.add_parser("status", help="print local agent state")
+
+    findings = sub.add_parser("findings", help="list stored findings (masked)")
+    findings.add_argument("--limit", type=int, default=20)
+    findings.add_argument("--scan-id", default=None)
     sub.add_parser("health", help="check the server")
     return parser
 
@@ -407,6 +440,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         return cmd_scan(config, args.roots, args.force)
     if args.command == "status":
         return cmd_status(config)
+    if args.command == "findings":
+        return cmd_findings(config, args.limit, args.scan_id)
     if args.command == "health":
         return cmd_health(config)
     return 2
